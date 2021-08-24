@@ -162,7 +162,8 @@ func (c *Calendar) GetUpcomingEvents(n int) []Event {
 	// sort events of calendar
 	sort.Sort(c.events)
 
-	now := time.Now()
+	now := time.Now().Add(time.Minute * -10)
+
 	// find next event
 	for _, event := range c.events {
 		if event.GetStart().After(now) {
