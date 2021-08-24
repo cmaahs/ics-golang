@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	//  "github.com/sirupsen/logrus"
 	wtz "github.com/yaegashi/wtz.go"
 
 	duration "github.com/channelmeter/iso8601duration"
@@ -209,7 +209,7 @@ func (p *Parser) parseICalContent(iCalContent, url string) {
 	p.parsedCalendars = append(p.parsedCalendars, ical)
 
 	// split the data into calendar info and events data
-	eventsData, calInfo, tzInfo := explodeICal(iCalContent)
+	eventsData, calInfo := explodeICal(iCalContent)
 	idCounter++
 
 	// fill the calendar fields
@@ -220,18 +220,16 @@ func (p *Parser) parseICalContent(iCalContent, url string) {
 	ical.SetUrl(url)
 
 	// parse the events and add them to ical
-	p.parseEvents(ical, eventsData, tzInfo)
+	p.parseEvents(ical, eventsData)
 
 }
 
 // explodes the ICal content to array of events and calendar info
-func explodeICal(iCalContent string) ([]string, string, []string) {
+func explodeICal(iCalContent string) ([]string, string) {
 	reEvents, _ := regexp.Compile(`(BEGIN:VEVENT(.*\n)*?END:VEVENT\r?\n)`)
-	tzDefs, _ := regexp.Compile(`(BEGIN:VTIMEZONE(.*\n)*?END:VTIMEZONE\r?\n)`)
 	allEvents := reEvents.FindAllString(iCalContent, len(iCalContent))
-	allTz := tzDefs.FindAllString(iCalContent, len(iCalContent))
 	calInfo := reEvents.ReplaceAllString(iCalContent, "")
-	return allEvents, calInfo, allTz
+	return allEvents, calInfo
 }
 
 // parses the iCal Name
@@ -277,103 +275,13 @@ func (p *Parser) parseICalTimezone(iCalContent string) time.Location {
 
 // ======================== EVENTS PARSING ===================
 
-// getNthDate returns the day of the first Monday in the given month.
-func getNthDate(year int, month time.Month, day int, num int) time.Time {
-
-	t := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
-	firstDay := int(t.Weekday())
-	var dayOfMonth int
-	if firstDay > day {
-		dayOfMonth = 1 + (7 * num) - (firstDay - day)
-	}
-	if firstDay == day {
-		dayOfMonth = 1 + (7 * (num - 1))
-	}
-	if firstDay < day {
-		dayOfMonth = 1 + (day - firstDay) + (7 * (num - 1))
-	}
-
-	startDate, terr := time.Parse("2006-01-02", fmt.Sprintf("%d-%02d-%02d", year, time.Month(month), dayOfMonth))
-	if terr != nil {
-		logrus.Error("Failed to parse date")
-	}
-	return startDate
-}
-
-// parseTZOffset(zoneData int)
-func parseTZOffset(zoneData string) string {
-
-	offsetRE, _ := regexp.Compile(`TZOFFSETTO:(.*\r?\n)`)
-	offset := offsetRE.FindStringSubmatch(zoneData)
-
-	return strings.TrimSpace(offset[1])
-
-}
-
-func (p *Parser) getTZOffset(tzData []string, tz string) string {
-	utcOffset := "+0000"
-
-	for _, tzd := range tzData {
-		// logrus.Info(fmt.Sprintf("tzData: %s", strings.TrimSpace(tzd)))
-		if strings.Contains(tzd, fmt.Sprintf("TZID:%s", tz)) {
-			logrus.Info("Match on: ", tz)
-			standardRE, _ := regexp.Compile(`(BEGIN:STANDARD(.*\n)*?END:STANDARD\r?\n)`)
-			standard := strings.TrimSpace(standardRE.FindString(tzd))
-			ruleRE, _ := regexp.Compile(`\r?\nRRULE.*BYDAY=(.*);BYMONTH=(.*)\r?\n`)
-			stdRule := ruleRE.FindStringSubmatch(standard)
-			if len(stdRule) == 0 || len(stdRule[0]) == 0 {
-				logrus.Warn("No Matches")
-			}
-
-			month, monerr := strconv.Atoi(strings.TrimSpace(stdRule[2]))
-			if monerr != nil {
-				logrus.Error("Failed to convert to month int")
-			}
-
-			now := time.Now()
-
-			stdDay := getNthDate(now.Year(), time.Month(month), Sunday, 1)
-			logrus.Info(fmt.Sprintf("Start of STD: %s", stdDay))
-
-			daylightRE, _ := regexp.Compile(`(BEGIN:DAYLIGHT(.*\n)*?END:DAYLIGHT\r?\n)`)
-			daylight := strings.TrimSpace(daylightRE.FindString(tzd))
-			dstRule := ruleRE.FindStringSubmatch(daylight)
-			if len(dstRule) == 0 || len(dstRule[0]) == 0 {
-				logrus.Warn("No Matches")
-			}
-			// logrus.Info(fmt.Sprintf("rule0: %v", strings.TrimSpace(rule[0])))
-			// logrus.Info(fmt.Sprintf("rule1: %v", strings.TrimSpace(rule[1])))
-			// logrus.Info(fmt.Sprintf("rule2: %v", strings.TrimSpace(rule[2])))
-
-			month, monerr = strconv.Atoi(strings.TrimSpace(dstRule[2]))
-			if monerr != nil {
-				logrus.Error("Failed to convert to month int")
-			}
-
-			cstDay := getNthDate(now.Year(), time.Month(month), Sunday, 1)
-			logrus.Info(fmt.Sprintf("Start of DST: %s", cstDay))
-
-			if now.After(cstDay) && now.Before(stdDay) {
-				logrus.Info("Daylight Savings...")
-				utcOffset = parseTZOffset(daylight)
-			} else {
-				logrus.Info(("Standard Time"))
-				utcOffset = parseTZOffset(standard)
-			}
-		}
-	}
-
-	return utcOffset
-}
-
 // parses the iCal events Data
-func (p *Parser) parseEvents(cal *Calendar, eventsData []string, tzData []string) {
+func (p *Parser) parseEvents(cal *Calendar, eventsData []string) {
 
 	for _, eventData := range eventsData {
 		event := NewEvent()
-		start, startTZID := p.parseEventStart(eventData, tzData)
-		logrus.Info("start: ", start)
-		end, endTZID := p.parseEventEnd(eventData, tzData)
+		start, startTZID := p.parseEventStart(eventData)
+		end, endTZID := p.parseEventEnd(eventData)
 		duration := p.parseEventDuration(eventData)
 
 		if end.Before(start) {
@@ -488,7 +396,6 @@ func (p *Parser) parseEvents(cal *Calendar, eventsData []string, tzData []string
 				weekDaysStart := freqDateStart
 				weekDaysEnd := freqDateEnd
 
-				// logrus.Info("WDS:", freqDateStart)
 				// check repeating by month
 				if bymonth == "" || strings.Contains(bymonth, weekDaysStart.Format("1")) {
 
@@ -608,7 +515,7 @@ func (p *Parser) parseEventModified(eventData string) time.Time {
 }
 
 // parses the event start time
-func (p *Parser) parseTimeField(fieldName string, eventData string, tzData []string) (time.Time, string) {
+func (p *Parser) parseTimeField(fieldName string, eventData string) (time.Time, string) {
 	reWholeDay, _ := regexp.Compile(fmt.Sprintf(`%s;VALUE=DATE:.*?\n`, fieldName))
 	re, _ := regexp.Compile(fmt.Sprintf(`%s(;TZID=(.*?))?(;VALUE=DATE-TIME)?:(.*?)\n`, fieldName))
 	resultWholeDay := reWholeDay.FindString(eventData)
@@ -624,17 +531,10 @@ func (p *Parser) parseTimeField(fieldName string, eventData string, tzData []str
 		// event that has start hour and minute
 		result := re.FindStringSubmatch(eventData)
 		if result == nil || len(result) < 4 {
-			// logrus.Error("Could not match REGEX")
 			return t, tzID
 		}
 		tzID = result[2]
 		dt := strings.TrimSpace(result[4])
-		// if len(tzID) > 0 {
-		// 	tzo := p.getTZOffset(tzData, tzID)
-		// 	logrus.Info("TZO:", tzo)
-		// 	dt = fmt.Sprintf("%s%s", dt, tzo)
-		// }
-		// logrus.Info("DT: ", dt)
 
 		loc, locerr := time.LoadLocation(tzID)
 		// In case we are not able to load TZID location we default to UTC
@@ -644,8 +544,6 @@ func (p *Parser) parseTimeField(fieldName string, eventData string, tzData []str
 				loc = time.UTC
 			}
 			loc = newloc
-			// logrus.Error("No LOCATION SET")
-			// loc = time.UTC
 		}
 
 		localTime, _ := time.ParseInLocation(dateTimeLayoutLocalized, dt, loc)
@@ -663,19 +561,17 @@ func (p *Parser) parseTimeField(fieldName string, eventData string, tzData []str
 
 	}
 
-	// logrus.Info(fmt.Sprintf("(%s: %s)", t, tzID))
-	// logrus.Info(fmt.Sprintf("UTC: %s", ut))
 	return ut, tzID
 }
 
 // parses the event start time
-func (p *Parser) parseEventStart(eventData string, tzData []string) (time.Time, string) {
-	return p.parseTimeField("DTSTART", eventData, tzData)
+func (p *Parser) parseEventStart(eventData string) (time.Time, string) {
+	return p.parseTimeField("DTSTART", eventData)
 }
 
 // parses the event end time
-func (p *Parser) parseEventEnd(eventData string, tzData []string) (time.Time, string) {
-	return p.parseTimeField("DTEND", eventData, tzData)
+func (p *Parser) parseEventEnd(eventData string) (time.Time, string) {
+	return p.parseTimeField("DTEND", eventData)
 }
 
 func (p *Parser) parseEventDuration(eventData string) time.Duration {
