@@ -293,6 +293,8 @@ func (p *Parser) parseEvents(cal *Calendar, eventsData []string) {
 		event.SetStartTZID(startTZID)
 		event.SetEndTZID(endTZID)
 		event.SetStatus(p.parseEventStatus(eventData))
+		// X-MICROSOFT-CDO-BUSYSTATUS:WORKINGELSEWHERE
+		event.SetBusyStatus(p.parseEventBusyStatus(eventData))
 		event.SetSummary(p.parseEventSummary(eventData))
 		event.SetDescription(p.parseEventDescription(eventData))
 		event.SetImportedID(p.parseEventId(eventData))
@@ -458,6 +460,13 @@ func (p *Parser) parseEventSummary(eventData string) string {
 	re, _ := regexp.Compile(`SUMMARY(?:;LANGUAGE=[a-zA-Z\-]+)?.*?\n`)
 	result := re.FindString(eventData)
 	return trimField(result, `SUMMARY(?:;LANGUAGE=[a-zA-Z\-]+)?:`)
+}
+
+// parses the event status
+func (p *Parser) parseEventBusyStatus(eventData string) string {
+	re, _ := regexp.Compile(`X-MICROSOFT-CDO-BUSYSTATUS:.*?\n`)
+	result := re.FindString(eventData)
+	return trimField(result, "X-MICROSOFT-CDO-BUSYSTATUS:")
 }
 
 // parses the event status

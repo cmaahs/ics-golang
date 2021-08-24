@@ -16,6 +16,7 @@ type Event struct {
 	alarmTime     time.Duration
 	importedId    string
 	status        string
+	busystatus    string
 	description   string
 	location      string
 	geo           *Geo
@@ -152,6 +153,15 @@ func (e *Event) SetStatus(status string) *Event {
 
 func (e *Event) GetStatus() string {
 	return e.status
+}
+
+func (e *Event) SetBusyStatus(status string) *Event {
+	e.busystatus = status
+	return e
+}
+
+func (e *Event) GetBusyStatus() string {
+	return e.busystatus
 }
 
 func (e *Event) SetSummary(summary string) *Event {
